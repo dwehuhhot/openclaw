@@ -1,0 +1,21 @@
+{
+  "name": "xiaopai-pixel-ui",
+  "version": "2.0.0",
+  "description": "小派像素状态监视器 - 星露谷物语风格的精致像素UI",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "keywords": [
+    "pixel-art",
+    "lobster",
+    "status-monitor"
+  ],
+  "author": "XiaoPai",
+  "license": "MIT",
+  "dependencies": {
+    "express": "^4.18.2",
+    "ws": "^8.13.0"
+  }
+}

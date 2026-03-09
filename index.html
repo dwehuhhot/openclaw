@@ -1,0 +1,563 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>小派 - 龙虾状态监视器</title>
+    <style>
+        * {
+        	margin: 0;
+					padding: 0;
+					box-sizing: border-box;
+					}
+					body {
+					background: #2c3e50;
+					display: flex;
+					justify-content: center;
+					align-items: center;
+					min-height: 100vh;
+					font-family: 'Courier New', monospace;
+					overflow: hidden;
+					background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+					}
+					#game-container {
+					position: relative;
+					border: 8px solid #4a5568;
+					border-radius: 12px;
+					box-shadow: 0 0 40px rgba(0, 0, 0, 0.4);
+					}
+					#game-canvas {
+					display: block;
+					image-rendering: pixelated;
+					image-rendering: crisp-edges;
+					}
+					#status-panel {
+					position: absolute;
+					top: 15px;
+					left: 15px;
+					background: rgba(0, 0, 0, 0.85);
+					padding: 12px 18px;
+					border-radius: 8px;
+					color: #ff6b6b;
+					font-size: 15px;
+					font-weight: bold;
+					text-shadow: 0 0 8px #ff6b6b;
+					border: 2px solid #ff6b6b;
+					}
+					#controls {
+					position: absolute;
+					bottom: 20px;
+					left: 50%;
+					transform: translateX(-50%);
+					display: flex;
+					gap: 12px;
+					}
+					.control-btn {
+					padding: 12px 20px;
+					background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+					border: 3px solid #4a5568;
+					border-radius: 8px;
+					color: #ffffff;
+					cursor: pointer;
+					font-size: 14px;
+					font-weight: bold;
+					transition: all 0.3s;
+					text-shadow: 0 0 5px rgba(0, 0, 0, 0.5);
+					}
+					.control-btn:hover {
+					background: linear-gradient(135deg, #764ba2 0%, #667eea 100%);
+					transform: translateY(-3px) scale(1.05);
+					box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
+					}
+					.control-btn.active {
+					background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+					border-color: #ff6b6b;
+					animation: pulse 1.5s ease-in-out infinite;
+					}
+					@keyframes pulse {
+					0%, 100% { transform: scale(1); }
+					50% { transform: scale(1.05); }
+					}
+					.btn-icon {
+					display: inline-block;
+					margin-right: 6px;
+					}
+		</style>
+</head>
+<body>
+<div id="game-container">
+<canvas id="game-canvas" width="480" height="760"></canvas>
+<div id="status-panel">
+<div>状态: <span id="current-status">摸鱼中</span></div>
+<div>位置: <span id="current-location">休息区</span></div>
+</div>
+<div id="controls">
+<button class="control-btn" data-action="commuting">
+<span class="btn-icon">🚌</span>上班路上
+</button>
+<button class="control-btn" data-action="arrival">
+<span class="btn-icon">🚪</span>到达公司
+</button>
+<button class="control-btn" data-action="working">
+<span class="btn-icon">💻</span>开始工作
+</button>
+<button class="control-btn" data-action="resting">
+<span class="btn-icon">☕</span>摸鱼休息
+</button>
+</div>
+</div>
+<script>
+const canvas = document.getElementById('game-canvas');
+const ctx = canvas.getContext('2d');
+    const state = {
+        status: 'resting',
+        location: 'rest',
+        x: 380,
+        y: 520,
+        targetX: 380,
+        targetY: 520,
+        isMoving: false,
+        frame: 0,
+        walkFrame: 0,
+        animationTimer: 0,
+        actionType: 'idle'
+    };
+    const areas = {
+        busStop: { x: 60, y: 120, width: 120, height: 100, name: '公交站' },
+        entrance: { x: 180, y: 220, width: 120, height: 80, name: '公司大门' },
+				desk: { x: 160, y: 420, width: 160, height: 100, name: '办公区' },
+				rest: { x: 320, y: 500, width: 120, height: 100, name: '摸鱼区' }
+		};
+		    const colors = {
+        lobster: {
+            body: '#ff6b6b',
+            highlight: '#ff9999',
+            dark: '#cc5555',
+            claw: '#ff5555',
+            antenna: '#ff8888'
+        },
+        building: {
+            wall: '#8B7355',
+            window: '#C4A484',
+            door: '#A67C52',
+            floor: '#F5E6D3'
+        },
+        nature: {
+            grass: '#7CB342',
+            tree: '#558B2F',
+            plant: '#8BC34A'
+        },
+        furniture: {
+            desk: '#6D4C41',
+            chair: '#4E342E',
+            couch: '#FF7043',
+            table: '#8D6E63'
+        }
+    };
+    function drawLobster(x, y, direction = 'right', action = 'idle') {
+        ctx.save();
+        ctx.translate(x, y);
+        if (direction === 'left') {
+            ctx.scale(-1, 1);
+        }
+        const pSize = 4;
+        
+        ctx.fillStyle = colors.lobster.body;
+        ctx.fillRect(-16, -12, 32, 20);
+        ctx.fillRect(-12, -8, 24, 16);
+        
+        ctx.fillStyle = colors.lobster.highlight;
+        ctx.fillRect(-12, -10, 8, 4);
+        ctx.fillRect(-12, -6, 6, 3);
+        
+        ctx.fillStyle = colors.lobster.body;
+        ctx.fillRect(-24, -16, 20, 8);
+        ctx.fillStyle = colors.lobster.dark;
+        ctx.fillRect(-20, -14, 4, 4);
+        
+        ctx.fillStyle = '#000';
+        ctx.fillRect(-20, -18, 3, 3);
+        ctx.fillRect(-14, -18, 3, 3);
+        
+        ctx.fillStyle = '#fff';
+        ctx.fillRect(-19, -17, 1, 1);
+        ctx.fillRect(-13, -17, 1, 1);
+        
+        ctx.fillStyle = colors.lobster.dark;
+        ctx.fillRect(-28, -12, 2, 6);
+        ctx.fillRect(-30, -8, 2, 5);
+        ctx.fillRect(-32, -4, 2, 4);
+        
+        ctx.strokeStyle = colors.lobster.antenna;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(-18, -16);
+        ctx.quadraticCurveTo(-35, -20, -38, -28);
+        ctx.moveTo(-14, -16);
+        ctx.quadraticCurveTo(-30, -18, -34, -24);
+        ctx.stroke();
+        
+        const walkOffset = action === 'walking' ? Math.sin(state.walkFrame * 0.5) * 4 : 0;
+        ctx.fillStyle = colors.lobster.body;
+        for (let i = -2; i <= 2; i++) {
+            const legX = i * 6;
+            const legY = 12 + Math.abs(i) * 2 + walkOffset;
+            ctx.fillRect(legX, legY, 3, 10);
+            ctx.fillRect(legX + 1, legY + 8, 2, 6);
+        }
+        
+        ctx.fillStyle = colors.lobster.claw;
+        ctx.fillRect(12, -6, 10, 14);
+        ctx.fillRect(16, -10, 4, 10);
+        ctx.fillStyle = colors.lobster.highlight;
+        ctx.fillRect(14, -4, 2, 8);
+        ctx.fillRect(18, -8, 1, 6);
+        
+        ctx.fillStyle = colors.lobster.dark;
+        ctx.fillRect(20, -6, 2, 6);
+        ctx.fillRect(18, -8, 1, 3);
+        
+        ctx.fillStyle = colors.lobster.body;
+        ctx.fillRect(12, 0, 8, 16);
+        ctx.fillRect(16, 2, 6, 12);
+        ctx.fillRect(18, 4, 4, 10);
+        ctx.fillStyle = colors.lobster.highlight;
+        ctx.fillRect(14, 2, 3, 12);
+        if (action === 'resting') {
+            const zOffset = Math.sin(state.frame * 0.1) * 4;
+            ctx.fillStyle = '#ffffff';
+            ctx.font = 'bold 14px Courier New';
+            ctx.fillText('Z', 8, -24 + zOffset);
+            ctx.font = '12px Courier New';
+            ctx.fillText('Z', 12, -28 + zOffset);
+            ctx.font = '10px Courier New';
+						ctx.fillText('Z', 15, -32 + zOffset);
+						            ctx.fillStyle = '#8D6E63';
+            ctx.fillRect(20, 8, 12, 8);
+            ctx.fillStyle = '#6D4C41';
+            ctx.fillRect(22, 10, 8, 6);
+            ctx.fillStyle = '#A1887F';
+            ctx.fillRect(24, 12, 4, 3);
+            
+            ctx.fillStyle = 'rgba(255,255,255,0.6)';
+            const steamOffset = Math.sin(state.frame * 0.15) * 2;
+            ctx.font = '10px Arial';
+            ctx.fillText('~', 22, 6 + steamOffset);
+        }
+        
+        if (action === 'working') {
+            ctx.fillStyle = '#4CAF50';
+            ctx.font = '10px Courier New';
+            const codeSymbols = ['>', '-', '=', '+', '/'];
+            const symbolIndex = Math.floor(state.frame / 5) % codeSymbols.length;
+            ctx.fillText(codeSymbols[symbolIndex], 12, -24);
+            
+            if (state.frame % 20 < 10) {
+                ctx.fillStyle = '#FFEB3B';
+                ctx.fillText('⚡', 14, -30);
+            }
+        }
+        
+        if (action === 'idle') {
+            const breathOffset = Math.sin(state.frame * 0.1) * 1;
+            ctx.fillStyle = colors.lobster.highlight;
+            ctx.fillRect(-10, -8 + breathOffset, 4, 2);
+        }
+        
+        if (action === 'walking') {
+            const shadowOpacity = Math.abs(Math.sin(state.walkFrame * 0.5)) * 0.3 + 0.1;
+            ctx.fillStyle = `rgba(0,0,0,${shadowOpacity})`;
+            ctx.fillRect(-12, 20, 24, 4);
+        }
+        
+        ctx.restore();
+    }
+    function drawScene() {
+        const gradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
+        gradient.addColorStop(0, '#FFE082');
+        gradient.addColorStop(0.3, '#FFF9C4');
+        gradient.addColorStop(0.7, '#F5E6D3');
+        gradient.addColorStop(1, '#EFEBE9');
+        ctx.fillStyle = gradient;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        
+        ctx.fillStyle = '#D7CCC8';
+        ctx.fillRect(0, 580, canvas.width, 60);
+        for (let i = 0; i < canvas.width; i += 20) {
+            ctx.fillStyle = i % 40 === 0 ? '#BCAAA4' : '#D7CCC8';
+            ctx.fillRect(i, 580, 20, 60);
+        }
+        
+        ctx.fillStyle = '#2C3E50';
+        ctx.fillRect(50, 130, 100, 8);
+        ctx.fillRect(95, 90, 6, 40);
+        ctx.fillStyle = '#3498DB';
+        ctx.fillRect(60, 100, 80, 25);
+        ctx.fillStyle = '#ECF0F1';
+        ctx.font = 'bold 14px Courier New';
+        ctx.fillText('🚌 公交站', 65, 118);
+        
+        ctx.fillStyle = '#8D6E63';
+        ctx.fillRect(55, 140, 80, 6);
+        ctx.fillRect(55, 146, 6, 15);
+        ctx.fillRect(129, 146, 6, 15);
+        ctx.fillStyle = '#A1887F';
+        ctx.fillRect(58, 140, 74, 4);
+        
+        ctx.fillStyle = '#4E342E';
+        ctx.fillRect(180, 120, 6, 70);
+        ctx.fillStyle = '#FFEB3B';
+        ctx.beginPath();
+        ctx.arc(183, 115, 8, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#FFC107';
+        ctx.beginPath();
+        ctx.arc(183, 115, 5, 0, Math.PI * 2);
+        ctx.fill();
+        
+        const lightGradient = ctx.createRadialGradient(183, 115, 0, 183, 115, 30);
+        lightGradient.addColorStop(0, 'rgba(255, 235, 59, 0.3)');
+        lightGradient.addColorStop(1, 'rgba(255, 235, 59, 0)');
+        ctx.fillStyle = lightGradient;
+        ctx.beginPath();
+        ctx.arc(183, 115, 30, 0, Math.PI * 2);
+        ctx.fill();
+        
+        ctx.fillStyle = '#8B7355';
+        ctx.fillRect(180, 240, 140, 90);
+        
+        const doorGradient = ctx.createLinearGradient(200, 250, 200, 310);
+        doorGradient.addColorStop(0, '#90CAF9');
+				doorGradient.addColorStop(0.3, '#81D4FA');
+				doorGradient.addColorStop(0.5, '#B3E5FC');
+				doorGradient.addColorStop(0.7, '#81D4FA');
+				doorGradient.addColorStop(1, '#90CAF9');
+				ctx.fillStyle = doorGradient;
+				ctx.fillRect(230, 260, 40, 50);
+				        ctx.fillStyle = '#A67C52';
+        ctx.fillRect(225, 255, 50, 60);
+        ctx.fillStyle = '#8D6E63';
+        ctx.fillRect(228, 258, 44, 54);
+        
+        ctx.fillStyle = '#FF6B6B';
+        ctx.beginPath();
+        ctx.arc(250, 275, 10, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#fff';
+        ctx.font = 'bold 12px Arial';
+        ctx.fillText('🦞', 246, 280);
+        
+        ctx.fillStyle = '#7CB342';
+        ctx.fillRect(330, 280, 20, 50);
+        ctx.fillStyle = '#558B2F';
+        ctx.fillRect(332, 270, 16, 15);
+        ctx.fillStyle = '#8BC34A';
+        for (let i = 0; i < 5; i++) {
+            ctx.fillRect(336 + Math.sin(i) * 3, 295 + i * 6, 4, 6);
+        }
+        
+        ctx.fillStyle = '#455A64';
+        ctx.fillRect(285, 270, 15, 12);
+        ctx.fillStyle = '#81C784';
+        ctx.beginPath();
+        ctx.arc(292, 276, 3, 0, Math.PI * 2);
+        ctx.fill();
+        
+        ctx.fillStyle = '#6D4C41';
+        ctx.fillRect(160, 480, 140, 8);
+        ctx.fillRect(160, 488, 140, 4);
+        ctx.fillStyle = '#8D6E63';
+        ctx.fillRect(165, 492, 130, 4);
+        
+        ctx.fillStyle = '#5D4037';
+        ctx.fillRect(170, 496, 4, 15);
+        ctx.fillRect(290, 496, 4, 15);
+        ctx.fillRect(170, 496, 124, 3);
+        
+        ctx.fillStyle = '#4E342E';
+        ctx.fillRect(190, 510, 30, 6);
+        ctx.fillRect(195, 516, 20, 15);
+        ctx.fillStyle = '#5D4037';
+        ctx.fillRect(195, 531, 20, 3);
+        
+        ctx.fillStyle = '#263238';
+        ctx.fillRect(210, 460, 60, 20);
+        ctx.fillStyle = '#37474F';
+        ctx.fillRect(212, 462, 56, 16);
+        ctx.fillStyle = '#A5D6A7';
+        ctx.fillRect(214, 464, 52, 12);
+        
+        const screenGlow = ctx.createRadialGradient(240, 470, 0, 240, 470, 40);
+        screenGlow.addColorStop(0, 'rgba(165, 214, 167, 0.3)');
+        screenGlow.addColorStop(1, 'rgba(165, 214, 167, 0)');
+        ctx.fillStyle = screenGlow;
+        ctx.fillRect(210, 460, 60, 20);
+        
+        ctx.fillStyle = '#80CBC4';
+        ctx.font = '6px Courier New';
+        for (let i = 0; i < 4; i++) {
+            ctx.fillRect(216, 466 + i * 2, 20 + Math.random() * 10, 2);
+        }
+        
+        ctx.fillStyle = '#FFB74D';
+        ctx.fillRect(285, 450, 3, 12);
+        ctx.fillStyle = '#FFA726';
+        ctx.beginPath();
+        ctx.arc(286, 445, 8, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#FFF9C4';
+        ctx.beginPath();
+        ctx.arc(286, 445, 5, 0, Math.PI * 2);
+        ctx.fill();
+        
+        ctx.fillStyle = '#8D6E63';
+        ctx.fillRect(120, 440, 30, 60);
+        ctx.fillStyle = '#6D4C41';
+        ctx.fillRect(120, 460, 30, 3);
+        ctx.fillRect(120, 480, 30, 3);
+        
+        const bookColors = ['#EF5350', '#42A5F5', '#66BB6A', '#FFA726', '#AB47BC'];
+        for (let i = 0; i < 4; i++) {
+            ctx.fillStyle = bookColors[i % bookColors.length];
+            ctx.fillRect(122, 442 + i * 4, 6, 12);
+            ctx.fillStyle = bookColors[(i + 1) % bookColors.length];
+            ctx.fillRect(142, 442 + i * 4, 5, 10);
+        }
+        
+        ctx.fillStyle = '#FF7043';
+        ctx.fillRect(320, 520, 100, 15);
+        ctx.fillRect(320, 535, 15, 20);
+        ctx.fillRect(405, 535, 15, 20);
+                ctx.fillStyle = '#FFAB91';
+        ctx.fillRect(325, 525, 90, 8);
+        ctx.fillStyle = '#FF8A65';
+        for (let i = 0; i < 5; i++) {
+            ctx.fillRect(330 + i * 17, 528, 12, 4);
+        }
+        
+        ctx.fillStyle = '#8D6E63';
+        ctx.fillRect(340, 480, 40, 6);
+        ctx.fillRect(350, 486, 20, 12);
+        
+        ctx.fillStyle = '#5D4037';
+        ctx.fillRect(355, 465, 10, 18);
+        ctx.fillStyle = '#8D6E63';
+        ctx.fillRect(353, 463, 14, 3);
+        ctx.fillStyle = '#A1887F';
+        ctx.fillRect(357, 467, 6, 8);
+        
+        ctx.fillStyle = '#455A64';
+        ctx.fillRect(410, 480, 30, 40);
+        ctx.fillStyle = '#37474F';
+        ctx.fillRect(413, 483, 24, 34);
+        
+        ctx.fillStyle = '#81C784';
+        ctx.fillRect(420, 495, 15, 15);
+        ctx.fillStyle = '#FFA726';
+        ctx.fillRect(425, 500, 6, 6);
+        
+        ctx.fillStyle = '#7CB342';
+        ctx.fillRect(460, 510, 25, 30);
+        ctx.fillStyle = '#558B2F';
+        ctx.fillRect(462, 495, 21, 20);
+        ctx.fillStyle = '#8BC34A';
+        for (let i = 0; i < 6; i++) {
+            ctx.fillRect(467 + Math.sin(i) * 4, 500 + i * 5, 5, 8);
+        }
+        
+        ctx.fillStyle = '#BCAAA4';
+        for (let i = 0; i < canvas.width; i += 30) {
+            ctx.fillRect(i, 580, 30, 3);
+        }
+    }
+    function moveLobster() {
+        if (state.isMoving) {
+            const dx = state.targetX - state.x;
+            const dy = state.targetY - state.y;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+            
+            if (distance > 2) {
+                const speed = 2.5;
+                state.x += (dx / distance) * speed;
+                state.y += (dy / distance) * speed;
+                state.walkFrame++;
+            } else {
+                state.x = state.targetX;
+                state.y = state.targetY;
+                state.isMoving = false;
+            }
+        }
+    }
+    function updateStatus(newStatus) {
+        const areaMap = {
+            'commuting': areas.busStop,
+            'arrival': areas.entrance,
+            'working': areas.desk,
+            'resting': areas.rest
+        };
+        
+        const targetArea = areaMap[newStatus];
+        state.targetX = targetArea.x + targetArea.width / 2;
+        state.targetY = targetArea.y + targetArea.height / 2 - 20;
+        state.isMoving = true;
+        state.status = newStatus;
+        state.walkFrame = 0;
+        
+        let actionType = 'idle';
+        if (newStatus === 'working') actionType = 'working';
+        else if (newStatus === 'resting') actionType = 'resting';
+        else if (newStatus === 'commuting') actionType = 'walking';
+        
+        state.actionType = actionType;
+        
+        document.getElementById('current-status').textContent = {
+            'commuting': '上班路上',
+            'arrival': '公司大门',
+            'working': '正在工作',
+            'resting': '摸鱼休息'
+        }[newStatus];
+        
+        document.getElementById('current-location').textContent = targetArea.name;
+        
+        document.querySelectorAll('.control-btn').forEach(btn => {
+            btn.classList.toggle('active', btn.dataset.action === newStatus);
+        });
+    }
+    function gameLoop() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        
+        drawScene();
+        moveLobster();
+        
+        const direction = state.x > state.targetX ? 'left' : 'right';
+        const action = state.isMoving ? 'walking' : (state.actionType || 'idle');
+				drawLobster(state.x, state.y, direction, action);
+				        state.frame++;
+        requestAnimationFrame(gameLoop);
+    }
+    async function syncWithAPI() {
+        try {
+            const response = await fetch('/api/state');
+            const data = await response.json();
+            if (data.status && data.status !== state.status) {
+                updateStatus(data.status);
+            }
+        } catch (error) {
+            console.log('API同步失败，使用本地控制');
+        }
+    }
+    setInterval(syncWithAPI, 3000);
+    document.querySelectorAll('.control-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            updateStatus(btn.dataset.action);
+            fetch('/api/state', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ status: btn.dataset.action })
+            }).catch(err => console.log('API更新失败:', err));
+        });
+    });
+    gameLoop();
+</script>
+</body>
+</html>
